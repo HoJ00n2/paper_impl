@@ -312,3 +312,7 @@ pyrightconfig.json
 *.key
 *.crt
 
+# exclude weight, file
+*.gz
+*.pth
+*-ubyte
