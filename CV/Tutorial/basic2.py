@@ -63,7 +63,55 @@ print(t1.shape) # [4, 12]
 t2 = torch.cat([tensor, tensor, tensor]) # 행방향으로 tensor 쌓기
 print(t2.shape) # [12, 4]
 
-t3 = torch.stack([tensor, tensor, tensor]) # 0번째 방향으로 [4,4] tensor stack하기
-print(t3.shape)
-t4 = torch.stack([tensor, tensor, tensor], dim=1)
-print(t4.shape)
+t3 = torch.stack([tensor, tensor, tensor]) # 0번째 차원 방향으로 [4,4] tensor stack하기
+print(t3.shape) # [3,4,4]
+t4 = torch.stack([tensor, tensor, tensor], dim=1) # 1번째 [4,4] tensor stack
+print(t4.shape) # [4,3,4] >> 어떻게 생긴건지 감이 안오네
+
+# 텐서 산술연산
+# 두 텐서사이의 행렬곱을 표현하는 다양한 방식 -> y1,y2,y3는 같은 결과를 보임
+# tensor.T 는 tensor의 transpose를 return
+y1 = tensor @ tensor.T # 1. @를 활용
+y2 = tensor.matmul(tensor.T) # tensor1.matmul(tensor2) 활용
+
+y3 = torch.rand_like(y1) # y1의 shape를 하며 각 random값을 가지는 y3
+torch.matmul(tensor, tensor.T, out=y3) # torch.matmul(tensor1, tensor2) 활용
+
+# Single-element tensors
+# 1개의 value만을 가지는 tensor가 있다면, ex) loss
+# 이를 item() 메서드를 사용하여 Python의 숫자 값으로 변환 가능 (tensor와 numeric은 엄연히 다름)
+agg = tensor.sum()
+agg_item = agg.item()
+print(type(agg), type(agg_item)) #  <torch.tensor>, <float>
+
+# In-place operations
+# 결과를 피연산자(operand)에 직접 저장하는 연산을 제자리 연산(in-place operation)
+# 이러한 연산은 이름에 _ 접미사를 가지고 있습니다.
+# 예를 들어: x.copy_(y), x.t_()는 x의 값을 변경합니다.
+tensor.add(5)
+print(f"not inplace operation result : {tensor}") # 원본 변경 x
+tensor.add_(5)
+print(f"inplace operation result : {tensor}") # 원본 변경 o
+
+# Bridge with NumPy
+# CPU상의 tensor나 NumPy array는 같은 메모리 공간을 공유 가능
+# 그러므로 값이 바뀌면 서로 영향을 줌
+# Tensor to NumPy array
+t = torch.ones(5)
+print(f"t : {t}")
+n = t.numpy()
+print(f"n : {n}")
+
+# 같은 메모리를 공유하는지 테스트 -> 공유!
+t.add_(1)
+print(f"t : {t}")
+print(f"n : {n}")
+
+# NumPy array to Tensor
+n = np.ones(5)
+t = torch.from_numpy(n)
+
+# 같은 메모리 공유하는지 테스트 -> 공유!
+np.add(n, 1, out=n)
+print(f"t : {t}")
+print(f"n : {n}")
