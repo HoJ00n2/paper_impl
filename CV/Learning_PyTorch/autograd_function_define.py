@@ -27,18 +27,21 @@ class LegendrePoylnomial3(torch.autograd.Function):
         ctx.save_for_backward 메소드를 통해 역전파 단계에 사용할 어떤 객체도
         저장(cache)해 둘 수 있음
         """
+        print("Forward called with input:", input) # for debugging
         ctx.save_for_backward(input)
         # 르장드르 다항식인 P3(x)를 의미
         return 0.5 * (5 * input ** 3 - 3 * input)
 
+    # ctx를 통해 저장된 데이터를 읽음 (ctx.saved_tensors)
+    # grad_output은 출력(forward의 결과)에 대한 손실의 변화도로 전달됨
     @staticmethod
     def backward(ctx, grad_output):
         """
         역전파 단계에서는 출력에 대한 손실의 변화도를 가지는 텐서를 받고
         입력에 대한 손실의 변화도를 계산
         """
-        print("ctx.saved_tensors : ", ctx.saved_tensors)
         input, = ctx.saved_tensors # input, 과 input, _ 의 차이는 ?
+        print("Backward called with grad_output:", grad_output) # for debugging
         # P3(x)를 x에 대해 편미분한 결과
         return grad_output * 1.5 * (5 * input ** 2 - 1)
 
@@ -56,6 +59,7 @@ y = torch.sin(x)
 # 3차 다항식이므로 4개의 가중치 필요 (0차 = bias, (1,2,3)차 weight) 각 (a,b,c,d)
 # 이 가중치들이 수렴하기 위해선 정답으로 부터 너무 멀지 않은 값으로 초기화
 # requires_grad = True로 설정하여 역전파 단계중 변화도를 계산
+# torch.full(()) 하면 scalar tensor가 나옴 -> 이렇게 한 이유는 torch의 기능을 이용하기 위함 (weight update)
 a = torch.full((), 0.0, device=device, dtype=dtype, requires_grad=True)
 b = torch.full((), -1.0, device=device, dtype=dtype, requires_grad=True)
 c = torch.full((), 0.0, device=device, dtype=dtype, requires_grad=True)
@@ -69,7 +73,9 @@ for t in range(1000):
 
     # 순전파 단계 : 연산을 하여 예측값 y 계산
     # 사용자 정의 autograd를 통해 P3 계산
-    y_pred = a + b * P3(c + d * x)
+    # P3(c + d * x) 는 P3로 정의된 르장드르 class의 forward에 input으로 (c + d * x)를 넣은 것
+    # `apply`를 호출하면 PyTorch가 내부적으로 `forward` 메소드를 호출 -> P3(input)
+    y_pred = a + b * P3(c + d * x) # ctx는 PyTorch 내부에서 알아서 할당함
 
     # 손실을 계산하고 출력
     loss = (y_pred - y).pow(2).sum() # batch내 모든 loss를 합해야 하므로 sum
@@ -77,10 +83,12 @@ for t in range(1000):
         print(t, loss.item())
 
     # autograd를 사용하여 역전파
+    # backward 메소드는 PyTorch의 loss.backward() 호출 시 자동으로 실행됩니다.
     loss.backward()
 
     # 경사하강법을 통해 가중치 갱신 -> 여긴 왜 no_grad?
     with torch.no_grad():
+        # "learning rate * weight's gradient" 값으로 업데이트
         a -= learning_rate * a.grad
         b -= learning_rate * b.grad
         c -= learning_rate * c.grad
