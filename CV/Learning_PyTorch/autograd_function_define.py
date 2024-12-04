@@ -84,9 +84,11 @@ for t in range(1000):
 
     # autograd를 사용하여 역전파
     # backward 메소드는 PyTorch의 loss.backward() 호출 시 자동으로 실행됩니다.
+    # loss.backward()는 computational graph를 통해 gradient를 (ex : a.grad) 구하는 과정만 함 (업데이트를 하지는 않음)
     loss.backward()
 
     # 경사하강법을 통해 가중치 갱신 -> 여긴 왜 no_grad?
+    # loss.backward()를 통해 구한 grad를 여기서 weight update (optimizer step 과정이 여기에 해당)
     with torch.no_grad():
         # "learning rate * weight's gradient" 값으로 업데이트
         a -= learning_rate * a.grad
