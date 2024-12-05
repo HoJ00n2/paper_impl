@@ -316,3 +316,5 @@ pyrightconfig.json
 *.gz
 *.pth
 *-ubyte
+
+*.npy
