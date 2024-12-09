@@ -1,4 +1,6 @@
 import os
+
+import matplotlib.pyplot as plt
 import numpy as np
 
 import torch
@@ -140,3 +142,145 @@ class UNet(nn.Module):
         x = self.fc(dec1_1)
 
         return x # 최종 output
+
+# dataloader 구현
+class Dataset(torch.utils.data.Dataset):
+    # 처음 선언할 때, 할당할 argument들 설정
+    def __init__(self, data_dir, transform=None):
+        self.data_dir = data_dir
+        self.transform = transform
+
+        # dataset list에 있는 dataset들을 얻어오기
+        lst_data = os.listdir(self.data_dir) # 해당 dir의 모든 파일들 list 형태로 불러오기
+        # 파일들 접두사(startswith) 기반으로 data, label 구분
+        lst_label = [f for f in lst_data if f.startswith('label')]
+        lst_input = [f for f in lst_data if f.startswith('input')]
+
+        lst_label.sort()
+        lst_input.sort()
+
+        # 이렇게 정렬된 lst들을 클래스 파라미터로 설정(by self)
+        self.lst_label = lst_label
+        self.lst_input = lst_input
+
+    def __len__(self):
+        return len(self.lst_label)
+
+    def __getitem__(self, index):
+        # index에 해당하는 파일 return
+        label = np.load(os.path.join(self.data_dir, self.lst_label[index]))
+        input = np.load(os.path.join(self.data_dir, self.lst_input[index]))
+
+        # data가 0~255 range로 저장되어 있기 때문에 > 0 ~ 1 사이로 정규화
+        label = label/255.0
+        input = input/255.0
+
+        # label에 채널 정보가 없다면 채널 축 추가
+        # 채널 축은 layer 거칠수록 늘어나야하는 정보이기 때문 (학습을 위함)
+        # PyTorch에 넣을거면 반드시 채널축이 있어야 됨
+        if label.ndim == 2:
+            label = label[:, :, np.newaxis]
+        if input.ndim == 2:
+            input = input[:, :, np.newaxis]
+
+        # 이렇게 생성된 label, input을 dict형태로 내보내기
+        data = {'input' : input, 'label' : label}
+
+        # 만약 transform을 data argument로 넣어줬다면 이걸로 적용
+        if self.transform:
+            data = self.transform(data)
+
+        return data
+
+# dataset_train = Dataset(data_dir=os.path.join(data_dir, 'train'))
+# # dataloader 데이터 잘 가져왔나 확인
+# data = dataset_train.__getitem__(0)
+#
+# input = data['input']
+# label = data['label']
+#
+# # print(label.shape) > (512, 512, 1)
+# plt.subplot(121)
+# plt.imshow(input.squeeze()) # 예전엔 squeeze 해서 채널축을 없애야 했는데, 지금은 있어도 가능한 듯
+#
+# plt.subplot(122)
+# plt.imshow(label.squeeze())
+#
+# plt.show()
+
+# 전처리를 위한 transform 클래스들 직접 구현
+class ToTensor(object):
+    # data : input과 label을 키값으로 가지는 {} 형태의 data를 object로 받음
+    def __call__(self, data):
+        label, input = data['label'], data['input']
+
+        # NumPy와 PyTorch의 차원 순서는 다름
+        # NumPy : (Y, X, C)
+        # PyTorch : (C, Y, X)
+        # NumPy to Tensor를 위한 순서 맞춤
+        label = label.transpose((2, 0, 1)).astype(np.float32)
+        input = input.transpose((2, 0, 1)).astype(np.float32)
+
+        # data를 다시 dict 형태로 맞춰주기 (현재까지 차이는 차원 순서)
+        data = {'label' : torch.from_numpy(label), 'input' : torch.from_numpy(input)}
+
+        return data
+
+class Normalization(object):
+    def __init__(self, mean=0.5, std=0.5):
+        self.mean = mean
+        self.std = std
+
+    def __call__(self, data):
+        # 실제로 Normalization 함수 호출할 때 작동할 부분
+        label, input = data['label'], data['input']
+
+        input = (input - self.mean) / self.std # 정규화
+
+        data = {'label' : label, 'input' : input}
+
+        return data
+
+class RandomFlip(object):
+    def __call__(self, data):
+        label, input = data['label'], data['input']
+        # 반반확률로 flip 여부 결정
+        if np.random.rand() > 0.5:
+            # data 좌우반전 (fliplr)
+            label = np.fliplr(label) # label은 왜 flip?
+            input = np.fliplr(input)
+
+        if np.random.rand() > 0.5:
+            # data 상하반전
+            label = np.flipud(label)
+            input = np.flipud(input)
+
+        data = {'label' : label, 'input' : input}
+
+        return data
+
+# 적용할 transform 초기화
+transform = transforms.Compose([
+    Normalization(mean=0.5, std=0.5),
+    RandomFlip(),
+    ToTensor(),
+    ])
+# dataloader에 정의했던 transform 방식 적용
+dataset_train = Dataset(data_dir=os.path.join(data_dir, 'train'), transform=transform)
+# dataloader 데이터 잘 가져왔나 확인
+data = dataset_train.__getitem__(0)
+
+input = data['input']
+label = data['label']
+
+# print(label.shape) > (512, 512, 1)
+plt.subplot(121)
+plt.imshow(input.squeeze()) # 예전엔 squeeze 해서 채널축을 없애야 했는데, 지금은 있어도 가능한 듯
+
+plt.subplot(122)
+plt.imshow(label.squeeze())
+
+plt.show() # 이미지도 클릭해보면 -1 ~ 1 사이로 값이 normalize 되는 것을 알 수 있음
+
+print(label.shape) # Transform을 거치고나니 [1, 512, 512]로 (C, Y, X)로 바뀐 것을 알 수 있음
+print(label.type()) # torch.FloatTensor로 numpy에서 torch형으로 바뀐 것을 알 수 있음
