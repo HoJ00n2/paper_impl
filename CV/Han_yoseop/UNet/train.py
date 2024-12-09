@@ -94,7 +94,8 @@ class UNet(nn.Module):
         # 5번째 decoder
         self.dec1_2 = CBR2d(in_channels=2 * 64, out_channels= 64)
         self.dec1_1 = CBR2d(in_channels=64, out_channels=64)
-        self.fc = nn.Conv2d(64, 2, 1) # 논문상 1x1 conv
+        # output 2 -> 1로 변경 (원래 data 채널은 1이었기 때문)
+        self.fc = nn.Conv2d(64, 1, 1) # 논문상 1x1 conv
 
     # UNet layer 연결하기 by forward
     def forward(self, x):
@@ -260,27 +261,135 @@ class RandomFlip(object):
         return data
 
 # 적용할 transform 초기화
+# transform = transforms.Compose([
+#     Normalization(mean=0.5, std=0.5),
+#     RandomFlip(),
+#     ToTensor(),
+#     ])
+#
+# # dataloader에 정의했던 transform 방식 적용
+# dataset_train = Dataset(data_dir=os.path.join(data_dir, 'train'), transform=transform)
+# # dataloader 데이터 잘 가져왔나 확인
+# data = dataset_train.__getitem__(0)
+#
+# input = data['input']
+# label = data['label']
+#
+# # print(label.shape) > (512, 512, 1)
+# plt.subplot(121)
+# plt.imshow(input.squeeze()) # 예전엔 squeeze 해서 채널축을 없애야 했는데, 지금은 있어도 가능한 듯
+#
+# plt.subplot(122)
+# plt.imshow(label.squeeze())
+#
+# plt.show() # 이미지도 클릭해보면 -1 ~ 1 사이로 값이 normalize 되는 것을 알 수 있음
+#
+# print(label.shape) # Transform을 거치고나니 [1, 512, 512]로 (C, Y, X)로 바뀐 것을 알 수 있음
+# print(label.type()) # torch.FloatTensor로 numpy에서 torch형으로 바뀐 것을 알 수 있음
+
+# 네트워크 학습하기 (전처리 -> 로더에 올리기 -> 학습)
 transform = transforms.Compose([
-    Normalization(mean=0.5, std=0.5),
-    RandomFlip(),
     ToTensor(),
-    ])
-# dataloader에 정의했던 transform 방식 적용
-dataset_train = Dataset(data_dir=os.path.join(data_dir, 'train'), transform=transform)
-# dataloader 데이터 잘 가져왔나 확인
-data = dataset_train.__getitem__(0)
+    RandomFlip(),
+    Normalization(mean=0.5, std=0.5)
+])
 
-input = data['input']
-label = data['label']
+dataset_train = Dataset(os.path.join(data_dir, 'train'), transform=transform)
+loader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True, num_workers=8)
 
-# print(label.shape) > (512, 512, 1)
-plt.subplot(121)
-plt.imshow(input.squeeze()) # 예전엔 squeeze 해서 채널축을 없애야 했는데, 지금은 있어도 가능한 듯
+dataset_val = Dataset(os.path.join(data_dir, 'var'), transform=transform)
+loader_val = DataLoader(dataset_val, batch_size=batch_size, shuffle=False, num_workers=8)
 
-plt.subplot(122)
-plt.imshow(label.squeeze())
+net = UNet().to(device) # network가 학습이 되는 도메인이 gpu인지 cpu인지 명시하기 위해 to(device)
 
-plt.show() # 이미지도 클릭해보면 -1 ~ 1 사이로 값이 normalize 되는 것을 알 수 있음
+fn_loss = nn.BCEWithLogitsLoss().to(device)
+optimizer = torch.optim.Adam(net.parameters(), lr=lr)
 
-print(label.shape) # Transform을 거치고나니 [1, 512, 512]로 (C, Y, X)로 바뀐 것을 알 수 있음
-print(label.type()) # torch.FloatTensor로 numpy에서 torch형으로 바뀐 것을 알 수 있음
+# 부수적인 variable 설정
+num_data_train = len(dataset_train)
+num_data_val = len(dataset_val)
+
+num_batch_train = np.ceil(num_data_train / batch_size)
+num_batch_val = np.ceil(num_data_val / batch_size)
+
+# output을 확인하기 위한 부수적인 function -> tensorboard로 보기 위함
+fn_tonumpy = lambda x : x.to('cpu').detach().numpy().transpose(0, 2, 3, 1) # 출력 Tensor -> NumPy 형태로 변환
+fn_denorm = lambda x, mean, std : (x * std) + mean # normalization 역연산해서 원래 데이터셋 형태로 복원
+fn_class = lambda x : 1.0 * (x > 0.5)
+
+# 네트워크 학습
+st_epoch = 0
+
+# 네트워크 저장하기
+def save(ckpt_dir, net, optim, epoch):
+    if not os.path.exists(ckpt_dir):
+        os.mkdir(ckpt_dir)
+
+    torch.save({'net' : net.state_dict(), 'optim': optim.state_dict()},
+               "./%s/model_epoch%d.pth" % (ckpt_dir,epoch))
+
+# 네트워크 불러오기
+def load(ckpt_dir, net, optim):
+    if not os.path.exists(ckpt_dir):
+        os.mkdir(ckpt_dir)
+
+    ckpt_lst = os.listdir(ckpt_dir)
+    ckpt_lst.sort(key=lambda f : int(''.join(filter(str.isdigit, f))))
+
+    dict_model = torch.load('./%s/%s' % (ckpt_dir, ckpt_lst[-1])) # 가장 최신 버전의 가중치 가져오기
+
+    net.load_state_dict(dict_model['net'])
+    optim.load_state_dict(dict_model['optim'])
+    epoch = int(ckpt_lst[-1].split('epoch')[1].split('.pth')[0])
+
+    return net, optim, epoch
+
+ckpt_lst = os.listdir(ckpt_dir)
+print(ckpt_lst[-1].split('epoch'))
+
+net, optim, st_epoch = load(ckpt_dir=ckpt_dir, net=net, optim=optimizer)
+
+for epoch in range(st_epoch + 1, num_epoch + 1):
+    net.train() # train 모드 키기
+    loss_arr = []
+
+    for batch, data in enumerate(loader_train, 1): # dataloader를 iterate하는 것임!
+        # forward path
+        label = data['label'].to(device)
+        input = data['input'].to(device)
+
+        output = net(input)
+
+        # backward path
+        optimizer.zero_grad()
+        loss = fn_loss(output, label)
+        loss.backward()
+        optimizer.step()
+
+        # 손실함수 계산
+        loss_arr += [loss.item()] # 모든 데이터에 대한 loss 누적합
+
+        print("TRAIN, EPOCH %04d / %04d | BATCH %04d / %04d | LOSS %.4f" %
+              (epoch, num_epoch, batch, num_batch_train,np.mean(loss_arr)))
+
+    # 평가모드
+    with torch.no_grad():
+        net.eval()
+        loss_arr = []
+
+        for batch, data in enumerate(loader_val, 1):
+            label = data['label'].to(device)
+            input = data['input'].to(device)
+
+            output = net(input)
+
+            # 손실함수 계산하기
+            loss = fn_loss(output, label)
+
+            loss_arr += [loss.item()]
+
+            print("VALID: EPOCH %04d / %04d | BATCH %04d / %04d | LOSS %.4f" %
+                  (epoch, num_epoch, batch, num_batch_val, np.mean(loss_arr)))
+
+    if epoch % 5 == 0: # 5 에포크마다 저장
+        save(ckpt_dir, net, optim, epoch)
