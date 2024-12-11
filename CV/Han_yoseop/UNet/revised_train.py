@@ -13,8 +13,9 @@ lr = 1e-6
 batch_size = 4
 
 num_epoch = 100
-data_dir = './datasets'
-ckpt_dir = './checkpoint'
+
+data_dir = './drive/MyDrive/AI_Coding/UNet/datasets'
+ckpt_dir = './drive/MyDrive/AI_Coding/UNet/checkpoint'
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # 네트워크 구축하기
@@ -29,7 +30,7 @@ class UNet(nn.Module):
             # 강의 상 CBR2d Layer
             layers = []
             layers += [nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size,
-                                 stride=stride, padding=padding, bias=bias)]
+                stride=stride, padding=padding, bias=bias)]
             layers += [nn.BatchNorm2d(num_features=out_channels)]
             layers += [nn.ReLU()]
             cbr = nn.Sequential(*layers)
@@ -148,7 +149,7 @@ class UNet(nn.Module):
 # dataloader 구현
 class Dataset(torch.utils.data.Dataset):
     # 처음 선언할 때, 할당할 argument들 설정
-    def __init__(self, data_dir, transform=None):
+    def __init__(self, data_dir, transform):
         self.data_dir = data_dir
         self.transform = transform
 
@@ -170,8 +171,8 @@ class Dataset(torch.utils.data.Dataset):
 
     def __getitem__(self, index):
         # index에 해당하는 파일 return
-        label = np.load(os.path.join(self.data_dir, self.lst_label[index]))
-        input = np.load(os.path.join(self.data_dir, self.lst_input[index]))
+        label = np.load(os.path.join(self.data_dir, self.lst_label[index])).copy()
+        input = np.load(os.path.join(self.data_dir, self.lst_input[index])).copy()
 
         # data가 0~255 range로 저장되어 있기 때문에 > 0 ~ 1 사이로 정규화
         label = label/255.0
@@ -185,30 +186,19 @@ class Dataset(torch.utils.data.Dataset):
         if input.ndim == 2:
             input = input[:, :, np.newaxis]
 
+        # Convert to PyTorch tensors
+        input = torch.from_numpy(input.transpose((2, 0, 1))).float()
+        label = torch.from_numpy(label.transpose((2, 0, 1))).float()
+
         # 이렇게 생성된 label, input을 dict형태로 내보내기
         data = {'input' : input, 'label' : label}
 
         # 만약 transform을 data argument로 넣어줬다면 이걸로 적용
-        if self.transform:
-            data = self.transform(data)
+        #if self.transform:
+        #    data = self.transform(data)
 
         return data
 
-# dataset_train = Dataset(data_dir=os.path.join(data_dir, 'train'))
-# # dataloader 데이터 잘 가져왔나 확인
-# data = dataset_train.__getitem__(0)
-#
-# input = data['input']
-# label = data['label']
-#
-# # print(label.shape) > (512, 512, 1)
-# plt.subplot(121)
-# plt.imshow(input.squeeze()) # 예전엔 squeeze 해서 채널축을 없애야 했는데, 지금은 있어도 가능한 듯
-#
-# plt.subplot(122)
-# plt.imshow(label.squeeze())
-#
-# plt.show()
 
 # 전처리를 위한 transform 클래스들 직접 구현
 class ToTensor(object):
@@ -220,8 +210,8 @@ class ToTensor(object):
         # NumPy : (Y, X, C)
         # PyTorch : (C, Y, X)
         # NumPy to Tensor를 위한 순서 맞춤
-        label = label.transpose((2, 0, 1)).astype(np.float32)
-        input = input.transpose((2, 0, 1)).astype(np.float32)
+        label = label.transpose((2, 0, 1)).copy().astype(np.float32)
+        input = input.transpose((2, 0, 1)).copy().astype(np.float32)
 
         # data를 다시 dict 형태로 맞춰주기 (현재까지 차이는 차원 순서)
         data = {'label' : torch.from_numpy(label), 'input' : torch.from_numpy(input)}
@@ -249,44 +239,17 @@ class RandomFlip(object):
         # 반반확률로 flip 여부 결정
         if np.random.rand() > 0.5:
             # data 좌우반전 (fliplr)
-            label = np.fliplr(label) # label은 왜 flip?
-            input = np.fliplr(input)
+            label = np.fliplr(label).copy() # label은 왜 flip?
+            input = np.fliplr(input).copy()
 
         if np.random.rand() > 0.5:
             # data 상하반전
-            label = np.flipud(label)
-            input = np.flipud(input)
+            label = np.flipud(label).copy()
+            input = np.flipud(input).copy()
 
         data = {'label' : label, 'input' : input}
 
         return data
-
-# 적용할 transform 초기화
-# transform = transforms.Compose([
-#     Normalization(mean=0.5, std=0.5),
-#     RandomFlip(),
-#     ToTensor(),
-#     ])
-#
-# # dataloader에 정의했던 transform 방식 적용
-# dataset_train = Dataset(data_dir=os.path.join(data_dir, 'train'), transform=transform)
-# # dataloader 데이터 잘 가져왔나 확인
-# data = dataset_train.__getitem__(0)
-#
-# input = data['input']
-# label = data['label']
-#
-# # print(label.shape) > (512, 512, 1)
-# plt.subplot(121)
-# plt.imshow(input.squeeze()) # 예전엔 squeeze 해서 채널축을 없애야 했는데, 지금은 있어도 가능한 듯
-#
-# plt.subplot(122)
-# plt.imshow(label.squeeze())
-#
-# plt.show() # 이미지도 클릭해보면 -1 ~ 1 사이로 값이 normalize 되는 것을 알 수 있음
-#
-# print(label.shape) # Transform을 거치고나니 [1, 512, 512]로 (C, Y, X)로 바뀐 것을 알 수 있음
-# print(label.type()) # torch.FloatTensor로 numpy에서 torch형으로 바뀐 것을 알 수 있음
 
 # 네트워크 학습하기 (전처리 -> 로더에 올리기 -> 학습)
 transform = transforms.Compose([
@@ -296,10 +259,10 @@ transform = transforms.Compose([
 ])
 
 dataset_train = Dataset(os.path.join(data_dir, 'train'), transform=transform)
-loader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True, num_workers=8)
+loader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True, num_workers=2)
 
 dataset_val = Dataset(os.path.join(data_dir, 'val'), transform=transform)
-loader_val = DataLoader(dataset_val, batch_size=batch_size, shuffle=False, num_workers=8)
+loader_val = DataLoader(dataset_val, batch_size=batch_size, shuffle=False, num_workers=2)
 
 net = UNet().to(device) # network가 학습이 되는 도메인이 gpu인지 cpu인지 명시하기 위해 to(device)
 
@@ -313,10 +276,6 @@ num_data_val = len(dataset_val)
 num_batch_train = np.ceil(num_data_train / batch_size)
 num_batch_val = np.ceil(num_data_val / batch_size)
 
-# output을 확인하기 위한 부수적인 function -> tensorboard로 보기 위함
-fn_tonumpy = lambda x : x.to('cpu').detach().numpy().transpose(0, 2, 3, 1) # 출력 Tensor -> NumPy 형태로 변환
-fn_denorm = lambda x, mean, std : (x * std) + mean # normalization 역연산해서 원래 데이터셋 형태로 복원
-fn_class = lambda x : 1.0 * (x > 0.5)
 
 # 네트워크 학습
 st_epoch = 0
@@ -345,16 +304,17 @@ def load(ckpt_dir, net, optim):
 
     return net, optim, epoch
 
-ckpt_lst = os.listdir(ckpt_dir)
-print(ckpt_lst[-1].split('epoch'))
-
-net, optim, st_epoch = load(ckpt_dir=ckpt_dir, net=net, optim=optimizer)
+# ckpt_dir 폴더자체가 없어서 이거하면 에러 발생 > 한번 학습 후 불러야..
+# ckpt_lst = os.listdir(ckpt_dir)
+# print(ckpt_lst[-1].split('epoch'))
+# net, optim, st_epoch = load(ckpt_dir=ckpt_dir, net=net, optim=optimizer)
 
 for epoch in range(st_epoch + 1, num_epoch + 1):
     net.train() # train 모드 키기
     loss_arr = []
 
     for batch, data in enumerate(loader_train, 1): # dataloader를 iterate하는 것임!
+        print(f"Batch {batch}: Input shape = {data['input'].shape}, Label shape = {data['label'].shape}")
         # forward path
         label = data['label'].to(device)
         input = data['input'].to(device)
@@ -393,4 +353,4 @@ for epoch in range(st_epoch + 1, num_epoch + 1):
                   (epoch, num_epoch, batch, num_batch_val, np.mean(loss_arr)))
 
     if epoch % 5 == 0: # 5 에포크마다 저장
-        save(ckpt_dir, net, optim, epoch)
+        save(ckpt_dir, net, optimizer, epoch)
