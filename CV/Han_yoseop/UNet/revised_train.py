@@ -143,6 +143,7 @@ class UNet(nn.Module):
         dec1_1 = self.dec1_1(dec1_2)
 
         x = self.fc(dec1_1)
+        x = torch.sigmoid(x)
 
         return x # 최종 output
 
@@ -266,7 +267,8 @@ loader_val = DataLoader(dataset_val, batch_size=batch_size, shuffle=False, num_w
 
 net = UNet().to(device) # network가 학습이 되는 도메인이 gpu인지 cpu인지 명시하기 위해 to(device)
 
-fn_loss = nn.BCEWithLogitsLoss().to(device)
+# fn_loss = nn.BCEWithLogitsLoss().to(device)
+fn_loss = nn.MSELoss().to(device)
 optimizer = torch.optim.Adam(net.parameters(), lr=lr)
 
 # 부수적인 variable 설정
@@ -276,6 +278,10 @@ num_data_val = len(dataset_val)
 num_batch_train = np.ceil(num_data_train / batch_size)
 num_batch_val = np.ceil(num_data_val / batch_size)
 
+# output을 확인하기 위한 부수적인 function -> tensorboard로 보기 위함
+# fn_tonumpy = lambda x : x.to('cpu').detach().numpy().transpose(0, 2, 3, 1) # 출력 Tensor -> NumPy 형태로 변환
+# fn_denorm = lambda x, mean, std : (x * std) + mean # normalization 역연산해서 원래 데이터셋 형태로 복원
+# fn_class = lambda x : 1.0 * (x > 0.5)
 
 # 네트워크 학습
 st_epoch = 0
@@ -352,5 +358,5 @@ for epoch in range(st_epoch + 1, num_epoch + 1):
             print("VALID: EPOCH %04d / %04d | BATCH %04d / %04d | LOSS %.4f" %
                   (epoch, num_epoch, batch, num_batch_val, np.mean(loss_arr)))
 
-    if epoch % 5 == 0: # 5 에포크마다 저장
+    if epoch % 10 == 0: # 100 에포크마다 저장
         save(ckpt_dir, net, optimizer, epoch)
