@@ -49,6 +49,8 @@ parser.add_argument("--nker", default=64, type=int, dest="nker")
 # 학습 네트워크 선택 (향후 추가될 수 있으므로 []로 관리)
 parser.add_argument("--network", default="unet", choices=["unet", "resnet"], type=str, dest="network")
 
+parser.add_argument("--learning_type", default="plain", choices=["plain", "residual"], type=str, dest="learning_type")
+
 # parser에 등록한 argument들 사용(파싱)
 args = parser.parse_args() # args에는 각 parser의 arguemnt들이 들어있음
 
@@ -72,6 +74,7 @@ nx = args.nx
 nch = args.nch
 nker = args.nker
 network = args.network
+learning_type = args.learning_type
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -97,14 +100,15 @@ transform = transforms.Compose([
 
 # train이냐 test냐에 따라 데이터셋이나 transform, optimization, 학습 설정이 다르므로 flag로 구분하기
 if mode == "train":
-    transform_train = transforms.Compose([RandomCrop(shape=(nx,ny)) ,Normalization(mean=0.5, std=0.5), RandomFlip(), ToTensor()])
-    transform_val = transforms.Compose([RandomCrop(shape=(nx, ny)),Normalization(mean=0.5, std=0.5), ToTensor()])
+    transform_train = transforms.Compose([RandomCrop(shape=(ny, nx)), Normalization(mean=0.5, std=0.5), RandomFlip(), ToTensor()])
+    transform_val = transforms.Compose([RandomCrop(shape=(ny, nx)), Normalization(mean=0.5, std=0.5), ToTensor()])
 
     dataset_train = Dataset(os.path.join(data_dir, 'train'), transform=transform_train, task=task, opts=opts)
-    loader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True, num_workers=2)
+    # num_workers=0 으로해야 multi-process 지원 x (내 노트북 세팅에선 0으로 해야 됨)
+    loader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True, num_workers=0)
 
     dataset_val = Dataset(os.path.join(data_dir, 'val'), transform=transform_val, task=task, opts=opts)
-    loader_val = DataLoader(dataset_val, batch_size=batch_size, shuffle=False, num_workers=2)
+    loader_val = DataLoader(dataset_val, batch_size=batch_size, shuffle=False, num_workers=0)
 
     # 부수적인 variable 설정
     num_data_train = len(dataset_train)
@@ -123,13 +127,16 @@ else:
     num_batch_test = np.ceil(num_data_test / batch_size)
 
 # 공통 부분 model, loss, optim 설정
-net = UNet().to(device) # network가 학습이 되는 도메인이 gpu인지 cpu인지 명시하기 위해 to(device)
-fn_loss = nn.MSELoss().to(device)
-optimizer = torch.optim.Adam(net.parameters(), lr=lr)
+if network == "unet":
+    net = UNet(nch=nch, nker=nker, norm="bnrom", learning_type=learning_type).to(device) # network가 학습이 되는 도메인이 gpu인지 cpu인지 명시하기 위해 to(device)
+    fn_loss = nn.MSELoss().to(device)  # 회귀,restoration 를 위한 MSE Loss
+    optimizer = torch.optim.Adam(net.parameters(), lr=lr)
+#elif network == "resnet":
+#    net = ResNet().to(device)
+
 
 fn_tonumpy = lambda x : x.to('cpu').detach().numpy().transpose(0, 2, 3, 1) # 출력 Tensor -> NumPy 형태로 변환
 fn_denorm = lambda x, mean, std : (x * std) + mean # normalization 역연산해서 원래 데이터셋 형태로 복원
-fn_class = lambda x : 1.0 * (x > 0.5)
 
 if mode == "train":
     st_epoch = 0
@@ -142,7 +149,8 @@ if mode == "train":
         loss_arr = []
 
         for batch, data in enumerate(loader_train, 1): # dataloader를 iterate하는 것임!
-            print(f"Batch {batch}: Input shape = {data['input'].shape}, Label shape = {data['label'].shape}")
+            print(f"Batch {batch}: Input shape = {data['input'].shape}, Label shape = {data['label'].shape}"
+                  f" Input type = {data['input'].dtype}, Label type = {data['label'].dtype}")
             # forward path
             label = data['label'].to(device)
             input = data['input'].to(device)
@@ -205,26 +213,32 @@ else:
                   (batch, num_batch_test, np.mean(loss_arr)))
 
             # Tensorboard로 저장하기 위해 Torch -> NumPy 형태로 변환
-            label = fn_tonumpy(label)
+            label = fn_tonumpy(fn_denorm(label, mean=0.5, std=0.5))
             input = fn_tonumpy(fn_denorm(input, mean=0.5, std=0.5))
-            output = fn_tonumpy(fn_class(output))
+            output = fn_tonumpy(fn_denorm(output, mean=0.5, std=0.5))
 
             # 각각의 slice들을 따로 저장 (label, input, output)
             for j in range(label.shape[0]):
                 id = num_batch_test * (batch - 1) + j
 
-                # 먼저 png형태로 파일들 저장 by plt.imsave
-                plt.imsave(os.path.join(result_dir, 'png', 'label_%04d.png' % id), label[j].squeeze(), cmap='gray')
-                plt.imsave(os.path.join(result_dir, 'png', 'input_%04d.png' % id), input[j].squeeze(), cmap='gray')
-                plt.imsave(os.path.join(result_dir, 'png', 'output_%04d.png' % id), output[j].squeeze(), cmap='gray')
+                label_ = label[j]
+                input_ = input[j]
+                output_ = output[j]
 
                 # numpy 형태로 저장 by np.save
-                # 근데 이미 label, input, output은 fn_tonumpy에 의해 numpy가 아닌가? 그냥 저장하면 안되는건가..
-                # 이미 label, input, output은 numpy가 맞음 그렇기 때문에 np.save가 가능한 것
-                # 다만 local 상에 .np 형태로 저장하려고 이 코드를 작성한것 뿐임
-                np.save(os.path.join(result_dir, 'numpy', 'label_%04d.np' % id), label[j].squeeze())
-                np.save(os.path.join(result_dir, 'numpy', 'input_%04d.np' % id), input[j].squeeze())
-                np.save(os.path.join(result_dir, 'numpy', 'output_%04d.np' % id), output[j].squeeze())
+                np.save(os.path.join(result_dir, 'numpy', 'label_%04d.np' % id), label_)
+                np.save(os.path.join(result_dir, 'numpy', 'input_%04d.np' % id), input_)
+                np.save(os.path.join(result_dir, 'numpy', 'output_%04d.np' % id), output_)
+
+                # png형태 저장할 때 (0~1)사이 값으로 클리핑을 해줘야 더 빠르게 처리 가능
+                label_ = np.clip(label_, a_min=0, a_max=1)
+                input_ = np.clip(input_, a_min=0, a_max=1)
+                output_ = np.clip(output_, a_min=0, a_max=1)
+
+                # png형태로 파일들 저장 by plt.imsave
+                plt.imsave(os.path.join(result_dir, 'png', 'label_%04d.png' % id), label_, cmap='gray')
+                plt.imsave(os.path.join(result_dir, 'png', 'input_%04d.png' % id), input_, cmap='gray')
+                plt.imsave(os.path.join(result_dir, 'png', 'output_%04d.png' % id), output_, cmap='gray')
 
     print("AVERAGE TEST: BATCH %04d / %04d | LOSS : %.4f" %
           (batch, num_batch_test, np.mean(loss_arr)))

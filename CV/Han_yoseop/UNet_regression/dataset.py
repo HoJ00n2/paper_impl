@@ -19,6 +19,7 @@ class Dataset(torch.utils.data.Dataset):
         self.task = task
         self.opts = opts
 
+        self.to_tensor = ToTensor()
         # dataset list에 있는 dataset들을 얻어오기
         lst_data = os.listdir(self.data_dir) # 해당 dir의 모든 파일들 list 형태로 불러오기
         # BSDS500 dataset 중 .jpg, png만 다루기
@@ -65,8 +66,16 @@ class Dataset(torch.utils.data.Dataset):
         elif self.task == "super_resolution":
             input = add_blur(img, type=self.opts[0], opts=self.opts[1])
 
+        label = label.astype(np.float32) # float64 -> float32 로 명시적변환
+        input = input.astype(np.float32)
+        # input = torch.from_numpy(input.transpose((2, 0, 1))).float()
+        # label = torch.from_numpy(label.transpose((2, 0, 1))).float()
+
         # 이렇게 생성된 label, input을 dict형태로 내보내기
         data = {'input' : input, 'label' : label}
+
+        if self.transform:
+            data = self.transform(data)
 
         return data
 
@@ -132,8 +141,12 @@ class RandomCrop(object):
     def __call__(self, data):
         input, label = data['input'], data['label']
 
-        h, w = input.shape[:2]
-        new_h, new_w = self.shape
+        h, w = label.shape[:2] # input.shape의 0번째 1번째 요소 반환
+        new_h, new_w = self.shape # shape는 내가 train에서 지정한 nx,ny = (480, 320)
+
+        # print(f"input.shape : {input.shape}") # 아직 input은 numpy이기 때문에 (h, w, c)의 차원을 가짐
+        # print(f"self.shape : {self.shape}") # (480, 320)
+        # print(f"h : {h}, new_h : {new_h}") # 321, 480
 
         top = np.random.randint(0, h - new_h)
         left = np.random.randint(0, w - new_w)

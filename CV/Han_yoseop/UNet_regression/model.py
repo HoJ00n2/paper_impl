@@ -4,86 +4,67 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+from layer import *
 # 네트워크 구축하기
 class UNet(nn.Module):
     # init 때는 네트워크를 구현하는데 필요한 함수(layer)들을 사전에 정의해준다.
-    def __init__(self):
+    def __init__(self, nch, nker, norm="bnorm", learning_type="plain"):
         super().__init__()
-
-        # 논문 구조 상 파란색 화살표에 해당하는 layer 구현
-        def CBR2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=True):
-            # 둘 다 돌아가는지 확인하기
-            # 강의 상 CBR2d Layer
-            layers = []
-            layers += [nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size,
-                stride=stride, padding=padding, bias=bias)]
-            layers += [nn.BatchNorm2d(num_features=out_channels)]
-            layers += [nn.ReLU()]
-            cbr = nn.Sequential(*layers)
-
-            # 내가 짠 CBR2d Layer
-            cbr = nn.Sequential(
-                nn.Conv2d(in_channels=in_channels, out_channels=out_channels,
-                          kernel_size=kernel_size, stride=stride, padding=padding, bias=bias),
-                nn.BatchNorm2d(num_features=out_channels),
-                nn.ReLU()
-            )
-
-            return cbr
+        self.learning_type = learning_type
 
         # encoder 부분
         # 파란색 화살표
-        self.enc1_1 = CBR2d(in_channels=1, out_channels=64)
-        self.enc1_2 = CBR2d(in_channels=64, out_channels=64)
+        self.enc1_1 = CBR2d(in_channels=nch, out_channels=1 * nker, norm=norm)
+        self.enc1_2 = CBR2d(in_channels=1 * nker, out_channels=1 * nker, norm=norm)
         self.pool1 = nn.MaxPool2d(2) # 빨간색 화살표
 
         # 2번째 encoder
-        self.enc2_1 = CBR2d(in_channels=64, out_channels=128)
-        self.enc2_2 = CBR2d(in_channels=128, out_channels=128)
+        self.enc2_1 = CBR2d(in_channels=1 * nker, out_channels=2 * nker, norm=norm)
+        self.enc2_2 = CBR2d(in_channels=2 * nker, out_channels=2 * nker, norm=norm)
         self.pool2 = nn.MaxPool2d(2)
 
         # 3번째 encoder
-        self.enc3_1 = CBR2d(in_channels=128, out_channels=256)
-        self.enc3_2 = CBR2d(in_channels=256, out_channels=256)
+        self.enc3_1 = CBR2d(in_channels=2 * nker, out_channels=4 * nker, norm=norm)
+        self.enc3_2 = CBR2d(in_channels=4 * nker, out_channels=4 * nker, norm=norm)
         self.pool3 = nn.MaxPool2d(2)
 
         # 4번째 encoder
-        self.enc4_1 = CBR2d(in_channels=256, out_channels=512)
-        self.enc4_2 = CBR2d(in_channels=512, out_channels=512)
+        self.enc4_1 = CBR2d(in_channels=4 * nker, out_channels=8 * nker, norm=norm)
+        self.enc4_2 = CBR2d(in_channels=8 * nker, out_channels=8 * nker, norm=norm)
         self.pool4 = nn.MaxPool2d(2)
 
         # 5번째 encoder
-        self.enc5_1 = CBR2d(in_channels=512, out_channels=1024)
+        self.enc5_1 = CBR2d(in_channels=8 * nker, out_channels=16 * nker, norm=norm)
 
         # decoder 부분
-        self.dec5_1 = CBR2d(in_channels=1024, out_channels=512)
+        self.dec5_1 = CBR2d(in_channels=16 * nker, out_channels=8 * nker, norm=norm)
 
-        self.unpool4 = nn.ConvTranspose2d(in_channels=512, out_channels=512,
+        self.unpool4 = nn.ConvTranspose2d(in_channels=8 * nker, out_channels=8 * nker,
                                           kernel_size=2, stride=2, padding=0, bias=True) # upconv 구현
         # 4번째 decoder
-        self.dec4_2 = CBR2d(in_channels=2 * 512, out_channels=512) # 그림상 흰색 화살표에 의해 512채널이 더해짐
-        self.dec4_1 = CBR2d(in_channels=512, out_channels=256)
+        self.dec4_2 = CBR2d(in_channels=2 * 8 * nker, out_channels=8 * nker, norm=norm) # 그림상 흰색 화살표에 의해 512채널이 더해짐
+        self.dec4_1 = CBR2d(in_channels=8 * nker, out_channels=4 * nker, norm=norm)
 
-        self.unpool3 = nn.ConvTranspose2d(in_channels=256, out_channels=256,
+        self.unpool3 = nn.ConvTranspose2d(in_channels=4 * nker, out_channels=4 * nker,
                                           kernel_size=2, stride=2, padding=0, bias=True)
 
         # 3번째 decoder
-        self.dec3_2 = CBR2d(in_channels=2 * 256, out_channels= 256)
-        self.dec3_1 = CBR2d(in_channels=256, out_channels=128)
-        self.unpool2 = nn.ConvTranspose2d(in_channels=128, out_channels=128,
+        self.dec3_2 = CBR2d(in_channels=2 * 4 * nker, out_channels= 4 * nker, norm=norm)
+        self.dec3_1 = CBR2d(in_channels=4 * nker, out_channels=2 * nker, norm=norm)
+        self.unpool2 = nn.ConvTranspose2d(in_channels=2 * nker, out_channels=2 * nker,
                                           kernel_size=2, stride=2, padding=0, bias=True)
 
         # 4번째 decoder
-        self.dec2_2 = CBR2d(in_channels=2 * 128, out_channels= 128)
-        self.dec2_1 = CBR2d(in_channels=128, out_channels=64)
-        self.unpool1 = nn.ConvTranspose2d(in_channels=64, out_channels=64,
+        self.dec2_2 = CBR2d(in_channels=2 * 2 * nker, out_channels= 2 * nker, norm=norm)
+        self.dec2_1 = CBR2d(in_channels=2 * nker, out_channels=1 * nker, norm=norm)
+        self.unpool1 = nn.ConvTranspose2d(in_channels=1 * nker, out_channels=1 * nker,
                                           kernel_size=2, stride=2, padding=0, bias=True)
 
         # 5번째 decoder
-        self.dec1_2 = CBR2d(in_channels=2 * 64, out_channels= 64)
-        self.dec1_1 = CBR2d(in_channels=64, out_channels=64)
+        self.dec1_2 = CBR2d(in_channels=2 * 1 * nker, out_channels= 1 * nker, norm=norm)
+        self.dec1_1 = CBR2d(in_channels=1 * nker, out_channels=1 * nker, norm=norm)
         # output 2 -> 1로 변경 (원래 data 채널은 1이었기 때문)
-        self.fc = nn.Conv2d(64, 1, 1) # 논문상 1x1 conv
+        self.fc = nn.Conv2d(1 * nker, nch, 1) # 논문상 1x1 conv
 
     # UNet layer 연결하기 by forward
     def forward(self, x):
@@ -128,7 +109,10 @@ class UNet(nn.Module):
         dec1_2 = self.dec1_2(cat1)
         dec1_1 = self.dec1_1(dec1_2)
 
-        x = self.fc(dec1_1)
-        x = torch.sigmoid(x)
+        if self.learning_type == "plain":
+            x = self.fc(dec1_1)
+        elif self.learning_type == "residual":
+            x = self.fc(dec1_1) + x
 
-        return x # 최종 output
+        x = torch.sigmoid(x)
+        return x
