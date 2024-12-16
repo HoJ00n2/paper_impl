@@ -10,15 +10,15 @@ from skimage.transform import rescale, resize
 # 네트워크 저장하기
 def save(ckpt_dir, net, optim, epoch):
     if not os.path.exists(ckpt_dir):
-        os.mkdir(ckpt_dir)
+        os.makedirs(ckpt_dir)
 
     torch.save({'net' : net.state_dict(), 'optim': optim.state_dict()},
-               "./%s/model_epoch%d.pth" % (ckpt_dir,epoch))
+               "%s/model_epoch%d.pth" % (ckpt_dir,epoch))
 
 # 네트워크 불러오기
 def load(ckpt_dir, net, optim):
     if not os.path.exists(ckpt_dir):
-        os.mkdir(ckpt_dir)
+        os.makedirs(ckpt_dir)
 
     ckpt_lst = os.listdir(ckpt_dir)
     ckpt_lst.sort(key=lambda f : int(''.join(filter(str.isdigit, f))))
