@@ -40,7 +40,7 @@ class ResBlock(nn.Module):
     def forward(self, x):
         return x + self.resblk(x) # resblok 마지막 부분의 elment sum
 
-class PixelShuffle(nn.Module):
+class PixelUnShuffle(nn.Module):
     def __init__(self, rx=2, ry=2):
         super().__init__()
         self.rx = rx # self를 하는 것은 class 멤버변수로 만드는 과정
@@ -66,7 +66,7 @@ class PixelShuffle(nn.Module):
 
         return x
 
-class PixelUnShuffle(nn.Module):
+class PixelShuffle(nn.Module):
     def __init__(self, rx=2, ry=2):
         super().__init__()
         self.rx = rx
