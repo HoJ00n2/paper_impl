@@ -38,7 +38,11 @@ parser.add_argument("--mode", default="train", type=str, dest="mode")
 # 학습 처음부터 or 이어할지
 parser.add_argument("--train_continue", default="off", type=str, dest="train_continue")
 # opts 설정 nargs를 통해 유동적인 인자 개수 받기 (opts는 어떤 기법 적용하냐에 따라 2 ~ 5개의 값을 가짐)
-parser.add_argument("--opts", nargs='+' ,default=["random", 30.0], dest="opts")
+
+# SRResNet이 아닐 경우
+parser.add_argument("--opts", nargs='+' ,default=["random", 4], dest="opts")
+# 2번째 인자는 keepdim에 대한 것 0으로하면 dim 유지를 안함으로써 input, output resolution을 다르게 만듦 -> SRResNet일 경우
+# parser.add_argument("--opts", nargs='+' ,default=["random", 4, 0], dest="opts")
 
 # 이미지 사이즈, 채널, UNet 커널 사이즈 조정
 parser.add_argument("--ny", default=320, type=int, dest="ny")
@@ -120,7 +124,7 @@ if mode == "train":
     num_batch_train = np.ceil(num_data_train / batch_size)
     num_batch_val = np.ceil(num_data_val / batch_size)
 else:
-    transform_test = transforms.Compose([RandomCrop(shape=(nx, ny)), Normalization(mean=0.5, std=0.5)])
+    transform_test = transforms.Compose([RandomCrop(shape=(ny, nx)), Normalization(mean=0.5, std=0.5)])
 
     dataset_test = Dataset(os.path.join(data_dir, 'test'), transform=transform_test, task=task, opts=opts)
     loader_test = DataLoader(dataset_test, batch_size=batch_size, shuffle=False, num_workers=2)
@@ -152,7 +156,6 @@ if mode == "train":
     for epoch in range(st_epoch + 1, num_epoch + 1):
         net.train() # train 모드 키기
         loss_arr = []
-
         for batch, data in enumerate(loader_train, 1): # dataloader를 iterate하는 것임!
             print(f"Batch {batch}: Label shape = {data['label'].shape} Label type = {data['label'].dtype}")
             # forward path
