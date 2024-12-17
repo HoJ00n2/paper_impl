@@ -22,12 +22,12 @@ parser = argparse.ArgumentParser(description="train the UNet",
                                  formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
 # Parser에 추가할 argument들 등록하기 (등록하면 이후 터미널을 통해 자동적으로 argument들을 입력으로 넣을 수 있음)
-parser.add_argument("--lr", default=1e-3, type=float, dest="lr")
+parser.add_argument("--lr", default=1e-4, type=float, dest="lr")
 parser.add_argument("--batch_size", default=4, type=int, dest="batch_size")
 parser.add_argument("--num_epoch", default=100, type=int, dest="num_epoch")
 
 # Parser에 추가할 config 설정들 등록
-parser.add_argument("--data_dir", default="./datasets/BSR/BSDS500/data/images", type=str, dest="data_dir")
+parser.add_argument("--data_dir", default="../UNet_regression/datasets/BSR/BSDS500/data/images", type=str, dest="data_dir")
 parser.add_argument("--ckpt_dir", default="./checkpoint", type=str, dest="ckpt_dir")
 parser.add_argument("--result_dir", default="./result", type=str, dest="result_dir")
 
@@ -45,9 +45,10 @@ parser.add_argument("--ny", default=320, type=int, dest="ny")
 parser.add_argument("--nx", default=480, type=int, dest="nx")
 parser.add_argument("--nch", default=3, type=int, dest="nch")
 parser.add_argument("--nker", default=64, type=int, dest="nker")
+parser.add_argument("--nblk", default=16, type=int, dest="nblk")
 
 # 학습 네트워크 선택 (향후 추가될 수 있으므로 []로 관리)
-parser.add_argument("--network", default="unet", choices=["unet", "resnet"], type=str, dest="network")
+parser.add_argument("--network", default="resnet", choices=["unet", "resnet", "srresnet"], type=str, dest="network")
 
 parser.add_argument("--learning_type", default="plain", choices=["plain", "residual"], type=str, dest="learning_type")
 
@@ -73,6 +74,8 @@ ny = args.ny
 nx = args.nx
 nch = args.nch
 nker = args.nker
+nblk = args.nblk
+
 network = args.network
 learning_type = args.learning_type
 
@@ -129,11 +132,13 @@ else:
 # 공통 부분 model, loss, optim 설정
 if network == "unet":
     net = UNet(in_channel=nch, out_channel=nch, nker=nker, norm="bnrom", learning_type=learning_type).to(device) # network가 학습이 되는 도메인이 gpu인지 cpu인지 명시하기 위해 to(device)
-    fn_loss = nn.MSELoss().to(device)  # 회귀,restoration 를 위한 MSE Loss
-    optimizer = torch.optim.Adam(net.parameters(), lr=lr)
+elif network == "srresnet":
+    net = SRResNet(in_channels=nch, out_channels=nch, nker=nker, norm="bnorm", learning_type=learning_type, nblk=nblk).to(device)
 elif network == "resnet":
-    net = ResNet().to(device)
+    net = ResNet(in_channels=nch, out_channels=nch, nker=nker, norm="bnorm", learning_type=learning_type, nblk=nblk).to(device)
 
+fn_loss = nn.MSELoss().to(device)  # 회귀,restoration 를 위한 MSE Loss
+optimizer = torch.optim.Adam(net.parameters(), lr=lr)
 
 fn_tonumpy = lambda x : x.to('cpu').detach().numpy().transpose(0, 2, 3, 1) # 출력 Tensor -> NumPy 형태로 변환
 fn_denorm = lambda x, mean, std : (x * std) + mean # normalization 역연산해서 원래 데이터셋 형태로 복원
@@ -149,8 +154,7 @@ if mode == "train":
         loss_arr = []
 
         for batch, data in enumerate(loader_train, 1): # dataloader를 iterate하는 것임!
-            print(f"Batch {batch}: Input shape = {data['input'].shape}, Label shape = {data['label'].shape}"
-                  f" Input type = {data['input'].dtype}, Label type = {data['label'].dtype}")
+            print(f"Batch {batch}: Label shape = {data['label'].shape} Label type = {data['label'].dtype}")
             # forward path
             label = data['label'].to(device)
             input = data['input'].to(device)

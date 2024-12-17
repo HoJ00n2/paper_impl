@@ -184,3 +184,41 @@ class SRResNet(nn.Module):
         x = self.fc(x)
 
         return x
+
+class ResNet(nn.Module):
+    # ResNet은 SRResNet에서 PixelShuffle blk이 빠진 구조
+    def __init__(self, in_channels, out_channels, nker=64, learning_type="plain", norm="bnrom", nblk=16):
+        super().__init__()
+        self.learning_type = learning_type
+
+        # ResNet 첫 encoder에는 normalize를 하지 않음
+        self.enc = CBR2d(in_channels=in_channels, out_channels=nker, kernel_size=3, stride=1, padding=1,
+                         bias=True, norm=None, relu=0.0)
+
+        # res blk 정의
+        res = []
+        for i in range(nblk):
+            res += [ResBlock(nker, nker, kernel_size=3, stride=1, padding=1, bias=True,
+                             norm=norm, relu=0.0)]
+
+        self.res = nn.Sequential(*res)
+
+        # decoder
+        self.dec = CBR2d(nker, nker, kernel_size=3, stride=1, padding=1, bias=True,
+                         norm=norm, relu=0.0)
+
+        # 마지막 fc layer
+        self.fc = nn.Conv2d(nker, out_channels, kernel_size=1, stride=1, padding=0, bias=True)
+
+    def forward(self, x):
+        x0 = x # for residual
+
+        x = self.enc(x)
+        x = self.res(x)
+        x = self.dec(x)
+        x = self.fc(x)
+
+        if self.learning_type == "residual":
+            x += x0
+
+        return x
