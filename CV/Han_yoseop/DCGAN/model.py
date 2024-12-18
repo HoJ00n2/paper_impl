@@ -43,7 +43,7 @@ class DCGAN(nn.Module):
         x = self.dec4(x)
         x = self.dec5(x)
 
-        x = torch.tanh(x) # 마지막 layer 활성함수 tanh 적용
+        x = torch.tanh(x) # 마지막 layer 활성함수 tanh 적용 (-1 ~ 1) 범주를 가짐
 
         return x
 
